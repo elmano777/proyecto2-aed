@@ -1,0 +1,9 @@
+media/
+traces/
+dfs_timestamps
+dfs_timestamps.exe
+a.out
+a.exe
+__pycache__/
+*.pyc
+.vscode/
