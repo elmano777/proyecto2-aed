@@ -7,3 +7,6 @@ a.exe
 __pycache__/
 *.pyc
 .vscode/
+
+.idea/
+cmake-build-*/

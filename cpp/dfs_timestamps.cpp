@@ -1,83 +1,100 @@
-// DFS Timestamps (tin / tout)
-// Base: código de clase del Prof. Víctor Racsó Galván Oyola (CS2023, UTEC).
-// Adaptación del grupo: modo --trace, que además de resolver las consultas emite
-// una traza JSON (eventos enter/exit del DFS) que consume la animación en Manim.
-//
-//   ./dfs_timestamps          -> imprime SI/NO por consulta (comportamiento original)
-//   ./dfs_timestamps --trace  -> imprime la traza JSON para la animación
-//
-// Entrada: "n q", luego n-1 aristas "u v", luego q consultas "u v" (nodos 1..n, raíz 1).
-#include<bits/stdc++.h>
-using namespace::std;
+#include <bits/stdc++.h>
+using namespace std;
 
-const int N = 200000 + 5;
+struct ArbolTimestamps {
+    int n;
+    int reloj = 0;
+    vector<vector<int>> ady;
+    vector<int> tin, tout, padre;
+    vector<array<int, 3>> eventos;
+    vector<pair<int, int>> aristas;
 
-int T;
-int in[N];
-int out[N];
-vector<int> G[N];
+    explicit ArbolTimestamps(int n_)
+        : n(n_), ady(n_ + 1), tin(n_ + 1, 0), tout(n_ + 1, 0), padre(n_ + 1, 0) {}
 
-// --- agregado por el grupo: registro de eventos para la animación ---
-vector<array<int,3>> eventos;          // {0 = enter / 1 = exit, nodo, tiempo}
-vector<pair<int,int>> aristas;
-// ---------------------------------------------------------------------
-
-void add_edge(int u, int v) {
-    G[u].emplace_back(v);
-    G[v].emplace_back(u);
-    aristas.push_back({u, v});
-}
-
-void DFS(int u, int p = -1) {
-    in[u] = ++T;
-    eventos.push_back({0, u, in[u]});
-    for (int &v : G[u]) {
-        if (v == p) continue;
-        DFS(v, u);
+    void agregar_arista(int u, int v) {
+        ady[u].push_back(v);
+        ady[v].push_back(u);
+        aristas.push_back({u, v});
     }
-    out[u] = ++T;
-    eventos.push_back({1, u, out[u]});
-}
 
-bool is_ancestor(int u, int v) {
-    return in[u] <= in[v] and out[v] <= out[u];
-}
+    void dfs(int raiz) {
+        vector<int> siguiente(n + 1, 0);
+        vector<int> pila;
+
+        padre[raiz] = 0;
+        tin[raiz] = ++reloj;
+        eventos.push_back({0, raiz, tin[raiz]});
+        pila.push_back(raiz);
+
+        while (!pila.empty()) {
+            int u = pila.back();
+            if (siguiente[u] < (int)ady[u].size()) {
+                int v = ady[u][siguiente[u]++];
+                if (v == padre[u]) continue;
+                padre[v] = u;
+                tin[v] = ++reloj;
+                eventos.push_back({0, v, tin[v]});
+                pila.push_back(v);
+            } else {
+                tout[u] = ++reloj;
+                eventos.push_back({1, u, tout[u]});
+                pila.pop_back();
+            }
+        }
+    }
+
+    bool es_ancestro(int u, int v) const {
+        return tin[u] <= tin[v] && tout[v] <= tout[u];
+    }
+
+    int tam_subarbol(int v) const {
+        return (tout[v] - tin[v] + 1) / 2;
+    }
+};
 
 int main(int argc, char** argv) {
-    bool trace = (argc > 1 && string(argv[1]) == "--trace");
-    cin.tie(0) -> sync_with_stdio(false);
+    bool modo_traza = (argc > 1 && string(argv[1]) == "--trace");
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
     int n, q;
-    cin >> n >> q;
+    if (!(cin >> n >> q) || n < 1) {
+        cerr << "entrada invalida: se esperaba \"n q\" con n >= 1\n";
+        return 1;
+    }
+    ArbolTimestamps arbol(n);
     for (int i = 1; i < n; ++i) {
         int u, v;
         cin >> u >> v;
-        add_edge(u, v);
+        arbol.agregar_arista(u, v);
     }
-    DFS(1); // DFS desde la raiz
+    arbol.dfs(1);
 
-    if (!trace) {
+    if (!modo_traza) {
         while (q--) {
             int u, v;
             cin >> u >> v;
-            cout << (is_ancestor(u, v) ? "SI" : "NO") << '\n';
+            cout << (arbol.es_ancestro(u, v) ? "SI" : "NO") << '\n';
         }
         return 0;
     }
 
-    // --- modo traza (agregado por el grupo) ---
     cout << "{\"n\":" << n << ",\"edges\":[";
-    for (size_t i = 0; i < aristas.size(); ++i)
-        cout << (i ? "," : "") << "[" << aristas[i].first << "," << aristas[i].second << "]";
+    for (size_t i = 0; i < arbol.aristas.size(); ++i)
+        cout << (i ? "," : "") << "[" << arbol.aristas[i].first << "," << arbol.aristas[i].second << "]";
     cout << "],\"events\":[";
-    for (size_t i = 0; i < eventos.size(); ++i)
-        cout << (i ? "," : "") << "{\"type\":\"" << (eventos[i][0] ? "exit" : "enter")
-             << "\",\"u\":" << eventos[i][1] << ",\"t\":" << eventos[i][2] << "}";
+    for (size_t i = 0; i < arbol.eventos.size(); ++i) {
+        const auto& e = arbol.eventos[i];
+        cout << (i ? "," : "") << "{\"type\":\"" << (e[0] ? "exit" : "enter")
+             << "\",\"u\":" << e[1] << ",\"t\":" << e[2] << "}";
+    }
     cout << "],\"queries\":[";
     for (int i = 0; i < q; ++i) {
         int u, v;
         cin >> u >> v;
         cout << (i ? "," : "") << "{\"u\":" << u << ",\"v\":" << v
-             << ",\"result\":" << (is_ancestor(u, v) ? "true" : "false") << "}";
+             << ",\"result\":" << (arbol.es_ancestro(u, v) ? "true" : "false") << "}";
     }
     cout << "]}\n";
     return 0;

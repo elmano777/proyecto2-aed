@@ -1,36 +1,67 @@
-"""
-Animación de DFS Timestamps (tin / tout) con Manim Community.
-
-La animación NO está hecha "a mano": lee las trazas JSON que genera la
-implementación en C++ (cpp/dfs_timestamps.cpp, basada en el código de clase). Si cambias el árbol de entrada,
-cambia la animación.
-
-Render:  manim -qh animation/escena.py DFSTimestamps
-(o usa:  python scripts/run_all.py)
-"""
 import json
 from pathlib import Path
 
 from manim import *
 
-# ----------------------------------------------------------------------------
-# EDITA ESTO: datos del grupo para la intro / créditos
-# ----------------------------------------------------------------------------
 TITULO_PROYECTO = "DFS Timestamps: tin y tout"
-INTEGRANTES = ["Fernando Aguirre Milla, Rolando David Diaz Jara, Eliseo David Velasquez Diaz"]
+INTEGRANTES = ["Aguirre Milla, Fernando",
+               "Díaz Jara, Rolando David",
+               "Velásquez Díaz, Eliseo David"]
 CURSO = "CS2023 - Algoritmos y Estructuras de Datos (2026-2)"
-# ----------------------------------------------------------------------------
 
 TRACES = Path(__file__).resolve().parent.parent / "traces"
 
-COLOR_ENTRADA = YELLOW   # nodo "abierto" (en la pila del DFS)
-COLOR_SALIDA = GREEN     # nodo terminado
+COLOR_ENTRADA = YELLOW
+COLOR_SALIDA = GREEN
 COLOR_BASE = LIGHT_GRAY
 
 
 def cargar(nombre):
     with open(TRACES / f"{nombre}.json", encoding="utf-8") as f:
         return json.load(f)
+
+
+def disponer_arbol(n, edges, raiz=1):
+    ady = {i: [] for i in range(1, n + 1)}
+    for a, b in edges:
+        ady[a].append(b)
+        ady[b].append(a)
+    padre, prof, hijos = {raiz: 0}, {raiz: 0}, {i: [] for i in range(1, n + 1)}
+    cola = [raiz]
+    for u in cola:
+        for v in ady[u]:
+            if v != padre[u]:
+                padre[v], prof[v] = u, prof[u] + 1
+                hijos[u].append(v)
+                cola.append(v)
+
+    x, siguiente_hoja = {}, [0]
+
+    def colocar(u):
+        if not hijos[u]:
+            x[u] = siguiente_hoja[0]
+            siguiente_hoja[0] += 1
+        else:
+            for h in hijos[u]:
+                colocar(h)
+            x[u] = (x[hijos[u][0]] + x[hijos[u][-1]]) / 2
+
+    colocar(raiz)
+    columnas, filas = siguiente_hoja[0], max(prof.values()) + 1
+    pos, lado = {}, {}
+    if columnas >= filas:
+        gx = min(2.0, 10 / max(columnas - 1, 1))
+        gy = min(1.5, 3.6 / max(filas - 1, 1))
+        centro = (columnas - 1) / 2
+        for u in range(1, n + 1):
+            pos[u] = np.array([(x[u] - centro) * gx, ((filas - 1) / 2 - prof[u]) * gy, 0])
+            lado[u] = LEFT if x[u] < centro - 1e-9 else RIGHT
+    else:
+        gx = min(1.7, 10 / max(filas - 1, 1))
+        for u in range(1, n + 1):
+            pos[u] = np.array([(prof[u] - (filas - 1) / 2) * gx, 0, 0])
+            lado[u] = DOWN
+    return pos, lado
 
 
 class DFSTimestamps(Scene):
@@ -46,7 +77,6 @@ class DFSTimestamps(Scene):
         self.complejidad()
         self.creditos()
 
-    # ------------------------------------------------------------------ utils
     def limpiar(self):
         if self.mobjects:
             self.play(*[FadeOut(m) for m in self.mobjects])
@@ -57,11 +87,11 @@ class DFSTimestamps(Scene):
         self.wait(1)
         self.play(FadeOut(t))
 
-    # ------------------------------------------------------------------ intro
     def intro(self):
         titulo = Text(TITULO_PROYECTO, font_size=44)
         sub = Text(CURSO, font_size=22, color=GRAY_B).next_to(titulo, DOWN)
-        autores = Text(", ".join(INTEGRANTES), font_size=24).next_to(sub, DOWN, buff=0.5)
+        autores = VGroup(*[Text(nombre, font_size=26) for nombre in INTEGRANTES]) \
+            .arrange(DOWN, buff=0.2).next_to(sub, DOWN, buff=0.5)
         self.play(Write(titulo))
         self.play(FadeIn(sub), FadeIn(autores))
         self.wait(2)
@@ -88,41 +118,35 @@ class DFSTimestamps(Scene):
         self.wait(2)
         self.limpiar()
 
-    # ------------------------------------------------------------- demo (DFS)
     def construir_grafo(self, n, edges):
-        nodos = list(range(1, n + 1))          # nodos 1..n, raíz 1 (como en el código de clase)
-        etiquetas = {i: Text(str(i), font_size=26, color=BLACK) for i in nodos}
+        nodos = list(range(1, n + 1))
+        pos, lado = disponer_arbol(n, edges)
         cfg = {"radius": 0.3, "color": COLOR_BASE}
-        if n == 1:
-            return Graph([1], [], layout={1: ORIGIN}, labels=etiquetas,
-                         vertex_config=cfg)
-        g = Graph(nodos, edges, layout="tree",
-                  layout_config={"root_vertex": 1}, labels=etiquetas,
-                  vertex_config=cfg)
-        if g.height > 4.2:
-            g.scale_to_fit_height(4.2)
-        return g
+        g = Graph(nodos, edges, layout=pos, vertex_config=cfg)
+        return g, lado
 
     def run_dfs(self, nombre, titulo, con_intervalos=False):
         data = cargar(nombre)
         n = data["n"]
-        g = self.construir_grafo(n, [tuple(e) for e in data["edges"]])
+        g, lado = self.construir_grafo(n, [tuple(e) for e in data["edges"]])
         g.move_to(DOWN * 0.2)
+        numeros = VGroup(*[Text(str(u), font_size=26, color=BLACK).move_to(g.vertices[u])
+                           for u in range(1, n + 1)])
 
         enc = Text(titulo, font_size=30).to_edge(UP)
         reloj = Text("t = 0", font_size=28, color=WHITE).to_corner(UR)
-        self.play(FadeIn(enc), FadeIn(reloj), Create(g))
+        self.play(FadeIn(enc), FadeIn(reloj), Create(g), FadeIn(numeros))
 
         tin, tout = {}, {}
         rotulos = {}
         for ev in data["events"]:
             u, t = ev["u"], ev["t"]
             nuevo_reloj = Text(f"t = {t}", font_size=28).align_to(reloj, RIGHT) \
-                                                          .align_to(reloj, UP)
+                .align_to(reloj, UP)
             if ev["type"] == "enter":
                 tin[u] = t
                 r = Text(f"[{t}, ?]", font_size=20, color=COLOR_ENTRADA)
-                r.next_to(g.vertices[u], DOWN, buff=0.1)
+                r.next_to(g.vertices[u], lado[u], buff=0.12)
                 rotulos[u] = r
                 self.play(g.vertices[u].animate.set_color(COLOR_ENTRADA),
                           FadeIn(r), Transform(reloj, nuevo_reloj), run_time=0.5)
@@ -135,7 +159,6 @@ class DFSTimestamps(Scene):
                           Transform(reloj, nuevo_reloj), run_time=0.5)
         self.wait(0.5)
 
-        # Consultas es_ancestro(u, v) en O(1): solo comparan enteros ya calculados
         for q in data["queries"]:
             u, v, res = q["u"], q["v"], q["result"]
             self.play(g.vertices[u].animate.set_color(ORANGE),
@@ -145,7 +168,7 @@ class DFSTimestamps(Scene):
             l2 = Text(f"es_ancestro({u}, {v}) = {'verdadero' if res else 'falso'}",
                       font_size=30, color=GREEN if res else RED)
             msg = VGroup(l1, l2).arrange(DOWN, buff=0.2).to_edge(DOWN)
-            self.play(Write(msg))
+            self.play(FadeIn(msg, shift=UP * 0.2))
             self.wait(1.5)
             self.play(FadeOut(msg),
                       g.vertices[u].animate.set_color(COLOR_SALIDA),
@@ -156,11 +179,10 @@ class DFSTimestamps(Scene):
             self.mostrar_intervalos(n, tin, tout)
         self.limpiar()
 
-    # -------------------------------------------------------- intervalos nested
     def mostrar_intervalos(self, n, tin, tout):
         enc = Text("Cada nodo es un intervalo [tin, tout]", font_size=30).to_edge(UP)
         self.play(Write(enc))
-        X = lambda t: -4 + 8 * (t - 1) / (2 * n - 1)   # tiempos van de 1 a 2n
+        X = lambda t: -4 + 8 * (t - 1) / (2 * n - 1)
         orden = sorted(range(1, n + 1), key=lambda u: tin[u])
         barras = []
         for i, u in enumerate(orden):
@@ -178,15 +200,16 @@ class DFSTimestamps(Scene):
         self.play(FadeIn(nota))
         self.wait(3)
 
-    # ----------------------------------------------------------- complejidad
     def complejidad(self):
         t = Text("Complejidad", font_size=40).to_edge(UP)
         filas = VGroup(
             Text("Construcción (un DFS):  O(n)", font_size=30),
             Text("Consulta es_ancestro(u, v):  O(1)", font_size=30),
             Text("Memoria (tin y tout):  O(n)", font_size=30),
-            Text("Peor caso (cadena): recursión de profundidad n,\n"
-                 "en la práctica se usa un DFS iterativo",
+            Text("Sin tin/tout: subir por los padres de v cuesta O(h)",
+                 font_size=26, color=GRAY_B),
+            Text("Peor caso (cadena): profundidad n, por eso el DFS\n"
+                 "es iterativo (pila explícita) y no recursivo",
                  font_size=24, color=GRAY_B),
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.5).next_to(t, DOWN, buff=0.7)
         self.play(Write(t))
@@ -196,7 +219,6 @@ class DFSTimestamps(Scene):
         self.wait(2)
         self.limpiar()
 
-    # --------------------------------------------------------------- créditos
     def creditos(self):
         t = Text("Créditos", font_size=40).to_edge(UP)
         nombres = VGroup(*[Text(n, font_size=30) for n in INTEGRANTES]) \
